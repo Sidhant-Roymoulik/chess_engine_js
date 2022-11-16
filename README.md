@@ -1,12 +1,23 @@
-# Starter code for Chess.js and Chessboard.js 
+Chess Engine built in JavaScript.
 
-Integrates Chess.js and Chessboard.js into an HTML page.  
+### Basic Requirements
 
-**Branch main:** Random vs Random.  
-**Branch player vs random:** Player vs Random.  
+ - [ ] DFS
+ - [ ] Quiescence Search
+ - [ ] Alpha-Beta Pruning
+ - [ ] Evaluation Function
+ - [ ] Iterative Deepening
+ - [ ] Transposition/Hash Tables
+ 
+### Additional Optimizations
 
-Try it here:   
-https://0hq.github.io/starter_chess_engine/ 
+ - [ ] Parrallel Processing (Use Golang)
+ - [ ] Openings
+ - [ ] Tablebases
+ - [ ] Monte-Carlo Tree Search
+ - [ ] Endgames
+ - [ ] Principal Variation Search
+ - [ ] Razoring
 
 ---
 
@@ -17,6 +28,14 @@ Instructions for use:
 - Live Server extension in VSCode reccomended.   
   
 ---
+
+Challenged by Will Depue ([0hq](https://github.com/0hq)).
+
+Check out his [Tutorial](https://www.chessengines.org/) and [Starter Code](https://github.com/0hq/starter_chess_engine).
+
+---
+
+### Libraries
 
 Chess.js: https://github.com/jhlywa/chess.js/blob/master/README.md   
 
