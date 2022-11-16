@@ -1,5 +1,7 @@
 Chess Engine built in JavaScript.
 
+---
+
 ### Basic Requirements
 
  - [ ] DFS
