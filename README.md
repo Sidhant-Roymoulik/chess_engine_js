@@ -1,4 +1,4 @@
-Chess Engine built in JavaScript.
+# Chess Engine built in JavaScript
 
 ---
 
