@@ -4,7 +4,7 @@
 
 ### Basic Requirements
 
- - [ ] DFS
+ - [x] DFS
  - [ ] Quiescence Search
  - [ ] Alpha-Beta Pruning
  - [ ] Evaluation Function
