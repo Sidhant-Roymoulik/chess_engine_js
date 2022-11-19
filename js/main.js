@@ -1,60 +1,96 @@
+const TIMEOUT = 300;
+const MAX_DEPTH = 3;
+
+const PIECE_VAL = {p : 100, n : 300, b : 300, r : 500, q : 900, k : 100000};
+
 var board = null;
 var game = new Chess();
-var timeout = 500;
+var states_checked = 0;
 
-function getCaptures(possibleMoves) {
-    var captures = [];
-    for (var i = 0; i < possibleMoves.length; i++) {
-        if (possibleMoves[i][1] === "x") {
-            captures.push(possibleMoves[i]);
+function evalPosVal(game) {
+    var sum = 0;
+    var pieces = game.fen().split(' ')[0].split("");
+    pieces = pieces.filter((p) => p.match(/[a-z]/i));
+    for(let i = 0; i < pieces.length; i++) {
+        var piece = pieces[i];
+        piece == piece.toLowerCase() ?sum -= PIECE_VAL[piece] : sum += PIECE_VAL[piece.toLowerCase()];
+    }
+    return sum;
+}
+
+function evalPos(game) {
+    eval = evalPosVal(game);
+    let turn = (game.turn() === "w") ? 1 : -1;
+    if(game.in_checkmate()) {return Infinity*turn};
+    if(game.in_draw()) {return 0;}
+    if(game.in_check()) {eval += 25 * turn;}
+    return eval;
+}
+
+function minimax(game, depth) {
+    states_checked++;
+    if(depth <= 0) {
+        return [evalPos(game), null];
+    }
+
+    let eval = evalPos(game), bestMove;
+    var moves = game.moves();
+    if(game.turn() === "w") {
+        eval = -Infinity;
+        for(let i = 0; i < moves.length; i++) {
+            game.move(moves[i]);
+            [newEval, newMove] = minimax(game, depth-1);
+            game.undo();
+
+            if(newEval > eval) {
+                eval = newEval;
+                bestMove = moves[i];
+            }
+        }
+    } else {
+        eval = Infinity;
+        for(let i = 0; i < moves.length; i++) {
+            game.move(moves[i]);
+            [newEval, newMove] = minimax(game, depth-1);
+            game.undo();
+            
+            if(newEval < eval) {
+                eval = newEval;
+                bestMove = moves[i];
+            }
         }
     }
-    return captures;
+    return [eval, bestMove];
 }
 
-function makeRandomMove(possibleMoves) {
-    // choses a random index in the list
-    var randomIdx = Math.floor(Math.random() * possibleMoves.length);
-
-    // updates javascript board state
-    game.move(possibleMoves[randomIdx]);
+function makeRandomMove(moves) {
+    game.move(moves[Math.floor(Math.random()*moves.length)]);
 }
 
-function makeCapture(possibleMoves) {
-    var captures = getCaptures(possibleMoves);
-
-    // If there are captures on the board, play a random one
-    if (captures.length > 0) {
-        makeRandomMove(captures);
-    }
-    // Otherwise play a random move
-    else {
-        makeRandomMove(possibleMoves);
-    }
+function makeCapture(moves) {
+    var captures = moves.filter((move) => move.includes("x"));
+    captures.length > 0 ? makeRandomMove(captures) : makeRandomMove(moves);
 }
 
 function playGame() {
     // exit if the game is over
     if (game.game_over()) return;
 
-    // chess.js gives us all the possible moves in an array
-    // [ move1, move2, move3 ... ]
-    var possibleMoves = game.moves();
-
-    if(game.turn() === "w") {
-        // makeRandomMove(possibleMoves);
-        makeCapture(possibleMoves);
-    } else {
-        // makeRandomMove(possibleMoves);
-        makeCapture(possibleMoves);
-    }
-
-    // changes html board state
+    game.move("e4");
+    game.move("e5");
     board.position(game.fen());
 
-    window.setTimeout(playGame, timeout);
+    states_checked = 0;
+    [eval, move] = minimax(game, MAX_DEPTH, 0);
+    game.move(move);
+
+    console.log("Eval: " + eval);
+    console.log("Move: " + move);
+    console.log("States Checked: " + states_checked);
+
+    board.position(game.fen());
+    window.setTimeout(playGame, TIMEOUT);
 }
 
 board = Chessboard("myBoard", "start");
-
-window.setTimeout(playGame, 500);
+window.setTimeout(playGame, TIMEOUT);
