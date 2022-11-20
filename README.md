@@ -7,8 +7,8 @@
  - [x] DFS
  - [ ] Quiescence Search
  - [x] Alpha-Beta Pruning
- - [ ] Evaluation Function
- - [ ] Iterative Deepening
+ - [x] Piece Square Tables
+ - [x] Iterative Deepening
  - [ ] Transposition/Hash Tables
  
 ### Additional Optimizations
