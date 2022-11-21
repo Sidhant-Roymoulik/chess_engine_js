@@ -5,7 +5,7 @@
 ### Basic Requirements
 
  - [x] DFS
- - [ ] Quiescence Search
+ - [x] Quiescence Search
  - [x] Alpha-Beta Pruning
  - [x] Piece Square Tables
  - [x] Iterative Deepening

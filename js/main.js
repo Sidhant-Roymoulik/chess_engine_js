@@ -1,5 +1,8 @@
+const MAX_DEPTH = 4;
+const Q_MULTIPLIER = 1;
 const TIMEOUT = 300;
-const TIME_LIMIT = 10;
+const TIME_LIMIT = 5;
+const DEBUG = false;
 
 const PIECE_VAL = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000 };
 var POS_VAL_W = {
@@ -80,6 +83,42 @@ var q_states_checked = 0;
 var start;
 var max_depth;
 
+function evalMove(move) {
+    let turn, pst, pst_opp;
+    if (move.color === "w") {
+        turn = 1;
+        pst = POS_VAL_W;
+        pst_opp = POS_VAL_B;
+    } else {
+        turn = -1;
+        pst = POS_VAL_B;
+        pst_opp = POS_VAL_W;
+    }
+
+    let eval = 0;
+    var from = [8 - parseInt(move["from"][1]), move["from"].charCodeAt(0) - "a".charCodeAt(0)];
+    var to = [8 - parseInt(move["to"][1]), move["to"].charCodeAt(0) - "a".charCodeAt(0)];
+
+    if (move.san.includes("#")) { return [Infinity * turn, move]; }
+    if ("captured" in move) {
+        eval += (PIECE_VAL[move.captured] + pst_opp[move.captured][to[0]][to[1]]) * turn;
+    }
+    if(move.san.includes("O-O")) {
+        eval += 100;
+    }
+    if (move.flags.includes("p")) {
+        eval -= (PIECE_VAL[move.piece] + pst[move.piece][from[0]][from[1]]) * turn;
+        eval += (PIECE_VAL[move.promotion] + pst[move.promotion][to[0]][to[1]]) * turn;
+    } else {
+        // console.log(from, to);
+        // console.log(pst);
+        eval -= pst[move.piece][from[0]][from[1]] * turn;
+        eval += pst[move.piece][to[0]][to[1]] * turn;
+    }
+    return [eval, move];
+
+}
+
 function evalPosVal(game) {
     var sum = 0;
     var pieces = game.fen().split(' ')[0].split("");
@@ -96,55 +135,58 @@ function evalPos(game, move, eval) {
     if (!move) {
         return evalPosVal(game);
     }
-    var turn, pst, pst_opp;
-    if (move.color === "w") {
-        turn = 1;
-        pst = POS_VAL_W;
-        pst_opp = POS_VAL_B;
-    } else {
-        turn = -1;
-        pst = POS_VAL_B;
-        pst_opp = POS_VAL_W;
-    }
+    var turn = move.color === "w" ? 1 : -1;
 
-    if (game.in_checkmate()) { return -Infinity * turn; }
+    if (game.in_checkmate()) { return Infinity * turn; }
     if (game.in_draw()) { return 0; }
     if (game.in_check()) { eval += 25; }
 
-    // console.log(move["from"], move["to"]);
-    var from = [8 - parseInt(move["from"][1]), move["from"].charCodeAt(0) - "a".charCodeAt(0)];
-    var to = [8 - parseInt(move["to"][1]), move["to"].charCodeAt(0) - "a".charCodeAt(0)];
+    eval += evalMove(move)[0];
 
-    if ("captured" in move) {
-        eval += (PIECE_VAL[move.captured] + pst_opp[move.captured][to[0]][to[1]]) * turn;
-    }
-    if (move.flags.includes("p")) {
-        eval -= (PIECE_VAL[move.piece] + pst[move.piece][from[0]][from[1]]) * turn;
-        eval += (PIECE_VAL[move.promotion] + pst[move.promotion][to[0]][to[1]]) * turn;
-    } else {
-        // console.log(from, to);
-        // console.log(pst);
-        eval -= pst[move.piece][from[0]][from[1]] * turn;
-        eval += pst[move.piece][to[0]][to[1]] * turn;
-    }
     return eval;
 }
 
-function minimaxAlphaBeta(game, turn, depth, alpha, beta, move, prevEval) {
+function sortMoves(game, moves) {
+    let sortedMoves = [];
+    for (var i = 0; i < moves.length; i++) {
+        let move = game.move(moves[i]);
+        game.undo();
+        sortedMoves.push(evalMove(move));
+    }
+
+    sortedMoves.sort((p1, p2) => p2[0] - p1[0]);
+    if (game.turn() === "b") { sortedMoves.reverse(); }
+    // if (DEBUG) { console.log(sortedMoves); }
+    sortedMoves = sortedMoves.map((p) => p[1].san);
+    return sortedMoves;
+}
+
+function minimaxAlphaBeta(game, turn, depth, alpha, beta, prevMove, prevEval) {
     if ((new Date() - start) / 1000 > TIME_LIMIT) {
         return [null, null];
     }
-    // console.log(move, prevEval, depth);
-    let basicEval = evalPos(game, move, prevEval);
-    if (depth <= 0) {
-        // return quiesenceSearch(game, depth, alpha, beta, move, basicEval);
-        return [basicEval, null];
-    }
+
     states_checked++;
 
-    let eval, bestMove;
-    let moves = game.moves();
-    // let allMoves = [];
+    let basicEval = evalPos(game, prevMove, prevEval);
+    if (depth <= 0) {
+        return quiesenceSearch(game, turn, depth, alpha, beta, move, basicEval);
+        // return [basicEval, null];
+    }
+
+    let moves = sortMoves(game, game.moves());
+    if (moves.length === 0) {
+        return [basicEval, null];
+    }
+    // console.log(move, prevEval, depth);
+    // if (DEBUG && depth === max_depth) {
+    //     // console.log(game.moves());
+    //     // if(prevMove) {console.log(prevMove.san);}
+    //     console.log(moves);
+    // }
+
+    let eval, bestMove = moves[0];
+    let allMoves = [];
     if (turn) {
         eval = -Infinity;
         for (let i = 0; i < moves.length; i++) {
@@ -152,19 +194,23 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, move, prevEval) {
             [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, move, basicEval);
             game.undo();
 
+            if (newEval === null) {
+                continue;
+            }
+
+            if (DEBUG && depth === max_depth) {
+                allMoves.push([newEval, moves[i]]);
+            }
+
             if (newEval >= eval) {
                 eval = newEval;
                 bestMove = moves[i];
             }
-            // if(depth == max_depth) {
-            //     allMoves.push([newEval, moves[i]]);
-            // }
             beta = (beta < eval) ? eval : beta;
             if (beta >= alpha) {
                 break;
             }
         }
-        if (game.in_draw()) { eval = 0; }
     } else {
         eval = Infinity;
         for (let i = 0; i < moves.length; i++) {
@@ -172,47 +218,58 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, move, prevEval) {
             [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, move, basicEval);
             game.undo();
 
+            if (newEval === null) {
+                continue;
+            }
+
+            if (DEBUG && depth === max_depth) {
+                allMoves.push([newEval, move.san]);
+            }
+
             if (newEval <= eval) {
                 eval = newEval;
                 bestMove = moves[i];
             }
-            // if(depth == max_depth) {
-            //     allMoves.push([newEval, moves[i]]);
-            // }
             alpha = (alpha > eval) ? eval : alpha;
             if (beta >= alpha) {
                 break;
             }
         }
-        if (game.in_draw()) { eval = 0; }
     }
-    // allMoves.sort((p1, p2) => p2[0] - p1[0]);
-    // if(game.turn() == "b") {allMoves.reverse()};
-    // if(depth == max_depth) {
-    //     console.log(depth);
-    //     console.log(allMoves);
-    // }
+    if (DEBUG) {
+        allMoves.sort((p1, p2) => p2[0] - p1[0]);
+        if (game.turn() === "b") { allMoves.reverse() };
+        // allMoves = allMoves.map((p) => p[1]);
+        if (depth == max_depth) {
+            console.log(depth);
+            console.log(allMoves);
+        }
+    }
     return [eval, bestMove];
 }
 
 function getQMoves(game) {
     let allMoves = game.moves();
     let captures = allMoves.filter((move) => move.includes("x"));
-    let checks     = allMoves.filter((move) => move.includes("+"));
+    let checks = allMoves.filter((move) => move.includes("+"));
     let checkmates = allMoves.filter((move) => move.includes("#"));
     let promotions = allMoves.filter((move) => move.includes("="));
     return [...captures, ...checks, ...checkmates, ...promotions];
 }
 
-function quiesenceSearch(game, turn, depth, alpha, beta, move, prevEval) {
-    if((new Date() - start)/1000 > TIME_LIMIT) {
+function quiesenceSearch(game, turn, depth, alpha, beta, prevMove, prevEval) {
+    if ((new Date() - start) / 1000 > TIME_LIMIT) {
         return [null, null];
     }
+
     q_states_checked++;
-    let qmoves = getQMoves(game);
-    if (qmoves.length === 0) {
-        return [evalPos(game, null, prevEval), null];
+
+    let qmoves = sortMoves(game, getQMoves(game));
+    if (qmoves.length === 0 || depth == -max_depth * Q_MULTIPLIER) {
+        return [prevEval, null];
     }
+
+    // console.log(qmoves);
 
     let eval, bestMove;
     if (turn) {
@@ -221,6 +278,10 @@ function quiesenceSearch(game, turn, depth, alpha, beta, move, prevEval) {
             var qmove = game.move(qmoves[i]);
             [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, qmove, prevEval);
             game.undo();
+
+            if (newEval === null) {
+                continue;
+            }
 
             if (newEval >= eval) {
                 eval = newEval;
@@ -231,7 +292,7 @@ function quiesenceSearch(game, turn, depth, alpha, beta, move, prevEval) {
                 break;
             }
         }
-        if(eval >= prevEval) {
+        if (eval >= prevEval) {
             return [eval, bestMove];
         }
         return [prevEval, null];
@@ -242,6 +303,10 @@ function quiesenceSearch(game, turn, depth, alpha, beta, move, prevEval) {
             [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, qmove, prevEval);
             game.undo();
 
+            if (newEval === null) {
+                continue;
+            }
+
             if (newEval <= eval) {
                 eval = newEval;
                 bestMove = qmoves[i];
@@ -251,7 +316,7 @@ function quiesenceSearch(game, turn, depth, alpha, beta, move, prevEval) {
                 break;
             }
         }
-        if(eval <= prevEval) {
+        if (eval <= prevEval) {
             return [eval, bestMove];
         }
         return [prevEval, null];
@@ -273,26 +338,14 @@ function iterative_deepening(game) {
         let level_start = new Date();
         let [eval, move] = minimaxAlphaBeta(game, (game.turn() === "w"), max_depth, Infinity, -Infinity, null, 0);
         tot_time += (new Date() - level_start) / 1000;
+        tot_states += states_checked;
+        tot_q_states += q_states_checked;
         if (tot_time < TIME_LIMIT) {
             bestEval = eval;
             bestMove = move;
-            // if (game.turn() == "w") {
-            //     if (!bestEval || eval > bestEval) {
-            //         bestEval = eval;
-            //         bestMove = move;
-            //     }
-            // } else {
-            //     if (!bestEval || eval < bestEval) {
-            //         bestEval = eval;
-            //         bestMove = move;
-            //     }
-            // }
-
         } else {
             break;
         }
-        tot_states += states_checked;
-        tot_q_states += q_states_checked;
         max_depth++;
     }
     game.move(bestMove);
