@@ -1,11 +1,13 @@
-const MAX_DEPTH = 4;
-const Q_MULTIPLIER = 1;
-const TIMEOUT = 300;
-const TIME_LIMIT = 5;
 const DEBUG = false;
 
+const MAX_DEPTH = 4;
+const Q_MULTIPLIER = 2;
+const USE_Q_SEARCH = true;
+const USE_HASHING = false;
+const TIMEOUT = 300;
+const TIME_LIMIT = 10;
 const PIECE_VAL = { p: 100, n: 280, b: 320, r: 479, q: 929, k: 60000 };
-var POS_VAL_W = {
+const POS_VAL_W = {
     p: [
         [100, 100, 100, 100, 105, 100, 100, 100],
         [78, 83, 86, 73, 102, 82, 85, 90],
@@ -67,7 +69,7 @@ var POS_VAL_W = {
         [17, 30, -3, -14, 6, -1, 40, 18],
     ]
 };
-var POS_VAL_B = {
+const POS_VAL_B = {
     p: POS_VAL_W["p"].slice().reverse(),
     n: POS_VAL_W["n"].slice().reverse(),
     b: POS_VAL_W["b"].slice().reverse(),
@@ -80,8 +82,13 @@ var board = null;
 var game = new Chess();
 var states_checked = 0;
 var q_states_checked = 0;
+var hashes_used = 0;
 var start;
 var max_depth;
+var black_to_move;
+var randTable = [];
+var hashTable = [];
+var turns = 0;
 
 function evalMove(move) {
     let turn, pst, pst_opp;
@@ -103,8 +110,8 @@ function evalMove(move) {
     if ("captured" in move) {
         eval += (PIECE_VAL[move.captured] + pst_opp[move.captured][to[0]][to[1]]) * turn;
     }
-    if(move.san.includes("O-O")) {
-        eval += 100;
+    if (move.san.includes("O-O")) {
+        eval += 50;
     }
     if (move.flags.includes("p")) {
         eval -= (PIECE_VAL[move.piece] + pst[move.piece][from[0]][from[1]]) * turn;
@@ -116,7 +123,6 @@ function evalMove(move) {
         eval += pst[move.piece][to[0]][to[1]] * turn;
     }
     return [eval, move];
-
 }
 
 function evalPosVal(game) {
@@ -136,6 +142,9 @@ function evalPos(game, move, eval) {
         return evalPosVal(game);
     }
     var turn = move.color === "w" ? 1 : -1;
+
+    let [hashEval, hashMove] = readHash(getHash(game), Infinity);
+    if (hashEval && USE_HASHING) { return [hashEval, hashMove]; }
 
     if (game.in_checkmate()) { return Infinity * turn; }
     if (game.in_draw()) { return 0; }
@@ -166,16 +175,28 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, prevMove, prevEval) {
         return [null, null];
     }
 
-    states_checked++;
-
-    let basicEval = evalPos(game, prevMove, prevEval);
-    if (depth <= 0) {
-        return quiesenceSearch(game, turn, depth, alpha, beta, move, basicEval);
-        // return [basicEval, null];
+    let [hashEval, hashMove] = readHash(getHash(game), depth);
+    if (hashEval && USE_HASHING) {
+        // console.log("READING HASH from Minimax");
+        if (DEBUG && depth == max_depth) {
+            console.log("Depth: " + max_depth);
+            console.log([hashEval, hashMove.san]);
+        }
+        return [hashEval, hashMove];
     }
 
+    let basicEval = evalPos(game, prevMove, prevEval);
+    if (depth >= max_depth) {
+        if (USE_Q_SEARCH) { return quiescenceSearch(game, turn, depth, alpha, beta, prevMove, basicEval); }
+        return [basicEval, null];
+    }
+
+    states_checked++;
+
+    // let moves = game.moves();
     let moves = sortMoves(game, game.moves());
     if (moves.length === 0) {
+        writeHash(getHash(game), basicEval, prevMove, depth);
         return [basicEval, null];
     }
     // console.log(move, prevEval, depth);
@@ -185,29 +206,33 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, prevMove, prevEval) {
     //     console.log(moves);
     // }
 
-    let eval, bestMove = moves[0];
+    let eval, bestMove;
+    if (depth === 0) {
+        bestMove = moves[0];
+    }
     let allMoves = [];
     if (turn) {
         eval = -Infinity;
         for (let i = 0; i < moves.length; i++) {
             var move = game.move(moves[i]);
-            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, move, basicEval);
+            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth + 1, alpha, beta, move, basicEval);
             game.undo();
 
             if (newEval === null) {
                 continue;
             }
 
-            if (DEBUG && depth === max_depth) {
+            if (DEBUG && depth === 0) {
                 allMoves.push([newEval, moves[i]]);
             }
 
-            if (newEval >= eval) {
+            if (!bestMove || newEval > eval) {
                 eval = newEval;
-                bestMove = moves[i];
+                bestMove = move;
             }
-            beta = (beta < eval) ? eval : beta;
-            if (beta >= alpha) {
+            if (alpha < eval) alpha = eval;
+            if (alpha >= beta) {
+                writeHash(getHash(game), eval, bestMove, depth);
                 break;
             }
         }
@@ -215,23 +240,24 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, prevMove, prevEval) {
         eval = Infinity;
         for (let i = 0; i < moves.length; i++) {
             var move = game.move(moves[i]);
-            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, move, basicEval);
+            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth + 1, alpha, beta, move, basicEval);
             game.undo();
 
             if (newEval === null) {
                 continue;
             }
 
-            if (DEBUG && depth === max_depth) {
+            if (DEBUG && depth === 0) {
                 allMoves.push([newEval, move.san]);
             }
 
-            if (newEval <= eval) {
+            if (!bestMove || newEval < eval) {
                 eval = newEval;
-                bestMove = moves[i];
+                bestMove = move;
             }
-            alpha = (alpha > eval) ? eval : alpha;
-            if (beta >= alpha) {
+            if (beta > eval) beta = eval;
+            if (alpha >= beta) {
+                writeHash(getHash(game), eval, bestMove, depth);
                 break;
             }
         }
@@ -240,11 +266,12 @@ function minimaxAlphaBeta(game, turn, depth, alpha, beta, prevMove, prevEval) {
         allMoves.sort((p1, p2) => p2[0] - p1[0]);
         if (game.turn() === "b") { allMoves.reverse() };
         // allMoves = allMoves.map((p) => p[1]);
-        if (depth == max_depth) {
-            console.log(depth);
+        if (depth === 0) {
+            console.log("Depth: " + max_depth);
             console.log(allMoves);
         }
     }
+    writeHash(getHash(game), eval, bestMove, depth);
     return [eval, bestMove];
 }
 
@@ -257,17 +284,29 @@ function getQMoves(game) {
     return [...captures, ...checks, ...checkmates, ...promotions];
 }
 
-function quiesenceSearch(game, turn, depth, alpha, beta, prevMove, prevEval) {
+function quiescenceSearch(game, turn, depth, alpha, beta, prevMove, prevEval) {
     if ((new Date() - start) / 1000 > TIME_LIMIT) {
         return [null, null];
     }
 
-    q_states_checked++;
+    let [hashEval, hashMove] = readHash(getHash(game), depth);
+    if (hashEval && USE_HASHING) {
+        // console.log("READING HASH from Q-Search");
+        if (DEBUG && depth == max_depth) {
+            console.log("Depth: " + max_depth);
+            console.log([hashEval, hashMove.san]);
+        }
+        return [hashEval, hashMove];
+    }
 
+    // let qmoves = getQMoves(game);
     let qmoves = sortMoves(game, getQMoves(game));
-    if (qmoves.length === 0 || depth == -max_depth * Q_MULTIPLIER) {
+    if (qmoves.length === 0 || depth === (max_depth + 1) * Q_MULTIPLIER) {
+        writeHash(getHash(game), prevEval, prevMove, depth);
         return [prevEval, null];
     }
+
+    q_states_checked++;
 
     // console.log(qmoves);
 
@@ -276,23 +315,25 @@ function quiesenceSearch(game, turn, depth, alpha, beta, prevMove, prevEval) {
         eval = -Infinity;
         for (let i = 0; i < qmoves.length; i++) {
             var qmove = game.move(qmoves[i]);
-            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, qmove, prevEval);
+            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth + 1, alpha, beta, qmove, prevEval);
             game.undo();
 
             if (newEval === null) {
                 continue;
             }
 
-            if (newEval >= eval) {
+            if (!bestMove || newEval > eval) {
                 eval = newEval;
-                bestMove = qmoves[i];
+                bestMove = qmove;
             }
-            beta = (beta < eval) ? eval : beta;
-            if (beta >= alpha) {
+            if (alpha < eval) alpha = eval;
+            if (alpha >= beta) {
+                writeHash(getHash(game), eval, bestMove, depth);
                 break;
             }
         }
         if (eval >= prevEval) {
+            writeHash(getHash(game), eval, bestMove, depth);
             return [eval, bestMove];
         }
         return [prevEval, null];
@@ -300,31 +341,34 @@ function quiesenceSearch(game, turn, depth, alpha, beta, prevMove, prevEval) {
         eval = Infinity;
         for (let i = 0; i < qmoves.length; i++) {
             var qmove = game.move(qmoves[i]);
-            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth - 1, alpha, beta, qmove, prevEval);
+            [newEval, newMove] = minimaxAlphaBeta(game, !turn, depth + 1, alpha, beta, qmove, prevEval);
             game.undo();
 
             if (newEval === null) {
                 continue;
             }
 
-            if (newEval <= eval) {
+            if (!bestMove || newEval < eval) {
                 eval = newEval;
-                bestMove = qmoves[i];
+                bestMove = qmove;
             }
-            alpha = (alpha > eval) ? eval : alpha;
-            if (beta >= alpha) {
+            if (beta > eval) beta = eval;
+            if (alpha >= beta) {
+                writeHash(getHash(game), eval, bestMove, depth);
                 break;
             }
         }
         if (eval <= prevEval) {
+            writeHash(getHash(game), eval, bestMove, depth);
             return [eval, bestMove];
         }
         return [prevEval, null];
     }
 }
 
-function iterative_deepening(game) {
+function iterativeDeepening(game) {
     max_depth = 1;
+    let tot_hashes_used = 0;
     let tot_states = 0;
     let tot_q_states = 0;
     let tot_time = 0;
@@ -333,32 +377,95 @@ function iterative_deepening(game) {
 
     start = new Date();
     while (tot_time < TIME_LIMIT) {
+        hashes_used = 0;
         states_checked = 0;
         q_states_checked = 0;
         let level_start = new Date();
-        let [eval, move] = minimaxAlphaBeta(game, (game.turn() === "w"), max_depth, Infinity, -Infinity, null, 0);
+        let [eval, move] = minimaxAlphaBeta(game, (game.turn() === "w"), 0, -Infinity, Infinity, null, 0);
         tot_time += (new Date() - level_start) / 1000;
+        tot_hashes_used += hashes_used;
         tot_states += states_checked;
         tot_q_states += q_states_checked;
         if (tot_time < TIME_LIMIT) {
             bestEval = eval;
             bestMove = move;
+            writeHash(getHash(game), bestEval, bestMove, max_depth);
         } else {
             break;
         }
         max_depth++;
     }
-    game.move(bestMove);
+    game.move(bestMove.san);
     board.position(game.fen());
 
+    console.log(hashTable.length);
     console.log("Eval: " + (bestEval / 100).toFixed(2));
     console.log("Depth: " + (max_depth - 1));
-    console.log("Best Move: " + bestMove);
+    console.log("Best Move: " + bestMove.san);
     console.log("Time Taken: " + tot_time.toFixed(3));
-    console.log("States Checked: " + tot_states);
-    console.log("Q-States Checked: " + tot_q_states);
+    console.log("Hashes Used: " + tot_hashes_used);
+    console.log("Unique States Checked: " + tot_states);
+    console.log("Unique Q-States Checked: " + tot_q_states);
     console.log("");
 }
+
+function random() {
+    return Math.floor((2 ** 31) * Math.random());
+}
+
+function initZobrist() {
+    for (var i = 0; i < 64; i++) {
+        randTable.push([]);
+        for (var j = 0; j < 12; j++) {
+            randTable[i].push(random());
+        }
+    }
+    black_to_move = random();
+}
+
+function getHash(game) {
+    var piece_hash_val = { p: 0, n: 1, b: 2, r: 3, q: 4, k: 5 };
+    let position = game.board();
+    var h = 0;
+    if (game.turn() === "b") { h ^= black_to_move; }
+    for (var i = 0; i < 8; i++) {
+        for (var j = 0; j < 8; j++) {
+            if (position[i][j]) {
+                let piece_index = piece_hash_val[position[i][j].type];
+                if (position[i][j].color === "w") { piece_index += 6; }
+                h ^= randTable[i * 8 + j][piece_index];
+            }
+        }
+    }
+    return h;
+}
+
+function readHash(hash, depth) {
+    if (USE_HASHING) {
+        let position = hashTable[hash];
+        if (position && position.hash === hash) {
+            hashes_used++;
+            if (depth <= position.depth) {
+                return [position.eval, position.move];
+            }
+        }
+    }
+    return [null, null];
+}
+
+function writeHash(hash, eval, move, depth) {
+    if (move && USE_HASHING) {
+        hashTable[hash] = {};
+        var position = hashTable[hash];
+        position.hash = hash;
+        position.eval = eval;
+        position.move = move;
+        position.depth = depth;
+    }
+    // console.log(position);
+}
+
+
 
 function playGame() {
     // exit if the game is over
@@ -375,7 +482,7 @@ function playGame() {
     }
     if (game.game_over()) return;
 
-    iterative_deepening(game);
+    iterativeDeepening(game);
 
     window.setTimeout(playGame, TIMEOUT);
 }
@@ -386,5 +493,10 @@ board = Chessboard("myBoard", "start");
 // game.move("e5");
 // game.move("c4");
 board.position(game.fen());
+
+initZobrist();
+
+// console.log(randTable);
+// console.log(black_to_move);
 
 window.setTimeout(playGame, TIMEOUT);
