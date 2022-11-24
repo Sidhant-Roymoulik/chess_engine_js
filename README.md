@@ -1,5 +1,6 @@
 # Chess Engine built in JavaScript
 
+It was fun experimenting with the basics in JS, but for real performance I'll be switching languages to Go. The project will continue [here](https://github.com/Sidhant-Roymoulik/Light-Blue).
 ---
 
 ### Basic Requirements
