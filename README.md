@@ -5,11 +5,11 @@
 ### Basic Requirements
 
  - [x] DFS
- - [ ] Quiescence Search
+ - [x] Quiescence Search
  - [x] Alpha-Beta Pruning
  - [x] Piece Square Tables
- - [ ] Iterative Deepening
- - [ ] Transposition/Hash Tables
+ - [x] Iterative Deepening
+ - [x] Transposition/Hash Tables
  
 ### Additional Optimizations
 
